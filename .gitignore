@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+test_output/
+experiments/
+demo/
+demo_output/
+*.pkl
+*.png
+*.jpg
+*.jpeg

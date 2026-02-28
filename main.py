@@ -86,6 +86,27 @@ def get_parser():
         help="Savings rate of fixed households (default: alpha * d / (rfixed + d))",
     )
 
+    # two-type household extension:
+    parser.add_argument(
+        "--lambda-p",
+        type=float,
+        default=0.0,
+        help="Fraction of power-seeker households (default: 0.0)",
+    )
+    parser.add_argument(
+        "--power-target",
+        type=str,
+        default="power_mult",
+        choices=["capital", "power_mult", "power_log"],
+        help="Imitation target for power-seekers (default: power_mult)",
+    )
+    parser.add_argument(
+        "--d-power",
+        type=float,
+        default=0.5,
+        help="Exponent on consumption in power metric W = K * C^d (default: 0.5)",
+    )
+
     # exploration:
     parser.add_argument(
         "--pexplore",
