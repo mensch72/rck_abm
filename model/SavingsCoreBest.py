@@ -33,6 +33,10 @@ class SavingsCoreBest:
                           # savings rate given discount rate rfixed
             # exploration:
             pexplore=0.0,
+            # two-type household extension:
+            lambda_p=0.0,       # fraction of power-seeker households
+            power_target='power_mult',  # imitation target for power-seekers
+            d_power=0.5,        # exponent on consumption in power metric
     ):
 
         # copying threshold
@@ -82,7 +86,7 @@ class SavingsCoreBest:
         # waiting times between savings rate change events for each household
         self.waiting_times = np.random.exponential(scale=self.tau, size=self.n)
         # adjacency matrix between households
-        self.neighbors = nx.adj_matrix(adjacency).toarray()
+        self.neighbors = nx.adjacency_matrix(adjacency).toarray()
         self.G = adjacency
         # investment_decisions as indices of possible_opinions
         self.savings_rate = np.array(savings_rate)
@@ -121,6 +125,16 @@ class SavingsCoreBest:
         self.w = 0.0
         # capital rent
         self.r = 0.0
+
+        # two-type household extension:
+        self.lambda_p = lambda_p
+        self.power_target = power_target
+        self.d_power = d_power
+        # assign types: 'hedonist' or 'power_seeker'
+        self.is_power_seeker = np.random.rand(self.n) < lambda_p
+        self.household_type = np.where(self.is_power_seeker, 'power_seeker', 'hedonist')
+        n_ps = self.is_power_seeker.sum()
+        print(f"using {n_ps} power-seeker households ({n_ps/self.n*100:.1f}%)")
 
         if self.e_trajectory_output:
             self.init_e_trajectory()
@@ -190,6 +204,11 @@ class SavingsCoreBest:
                 "b": self.b,
                 "d": self.d,
                 "test": self.debug,
+                "household_type": self.household_type,
+                "is_power_seeker": self.is_power_seeker,
+                "lambda_p": self.lambda_p,
+                "power_target": self.power_target,
+                "d_power": self.d_power,
             }
         return self.final_state
 
@@ -348,11 +367,15 @@ class SavingsCoreBest:
             self.G.neighbors(candidate)
         )
 
-        # choose best neighbor of candidate
-        func_vals = (1.0 - self.savings_rate[neighbors]) * self.income[neighbors]
-        # IF COPY based on highest CAPITAL:
-        # func_vals = self.capital[neighbors]
-        if self.pfuture != 0:
+        # choose best neighbor of candidate based on household type
+        if self.is_power_seeker[candidate]:
+            # power-seeker imitation rule
+            func_vals = self._power_seeker_func_vals(neighbors)
+        else:
+            # hedonist imitation rule (existing): copy by consumption
+            func_vals = (1.0 - self.savings_rate[neighbors]) * self.income[neighbors]
+
+        if self.pfuture != 0 and not self.is_power_seeker[candidate]:
             cfut = self.c_future(
                 sj=self.savings_rate[neighbors],
                 Li=self.P[candidate],
@@ -377,11 +400,27 @@ class SavingsCoreBest:
 
         return candidate, neighbor, neighbors, update_time
 
+    def _power_seeker_func_vals(self, neighbors):
+        """Compute imitation target values for power-seeker households."""
+        if self.power_target == 'capital':
+            return self.capital[neighbors]
+        elif self.power_target == 'power_mult':
+            C = (1.0 - self.savings_rate[neighbors]) * self.income[neighbors]
+            C = np.maximum(C, 0.0)
+            return self.capital[neighbors] * C ** self.d_power
+        elif self.power_target == 'power_log':
+            C = (1.0 - self.savings_rate[neighbors]) * self.income[neighbors]
+            C = np.maximum(C, 1e-300)
+            K = np.maximum(self.capital[neighbors], 1e-300)
+            return np.log(K) + self.d_power * np.log(C)
+        else:
+            raise ValueError(f"Unknown power_target: {self.power_target}")
+
     def update_savings_rate(self, candidate, neighbor):
         if self.is_fixed[candidate]:
             return 0
         if np.random.rand() < self.pexplore:
-            self.savings_rate[candidate] = np.random.rand()
+            self.savings_rate[candidate] = np.random.rand() * 0.99
             return 0
         if self.fitness(neighbor) > self.fitness(candidate):
             if (
@@ -391,13 +430,9 @@ class SavingsCoreBest:
                 self.savings_rate[candidate] = self.savings_rate[
                                                    neighbor
                                                ] + np.random.uniform(-self.eps, self.eps)
-                while (self.savings_rate[candidate] > 1) or (
-                        self.savings_rate[candidate] < 0
-                ):
-                    # need savings_rate to stay in [0,1]
-                    self.savings_rate[candidate] = (
-                                                       self.savings_rate[neighbor]
-                                                   ) + np.random.uniform(-self.eps, self.eps)
+                self.savings_rate[candidate] = np.clip(
+                    self.savings_rate[candidate], 0.0, 0.99
+                )
         return 0
 
     def fitness(self, agent):
@@ -412,6 +447,7 @@ class SavingsCoreBest:
             "indiv_savings_rate",
             "indiv_capital",
             "indiv_consumption",
+            "household_type",
         ]
         self.e_trajectory.append(element)
 
@@ -428,9 +464,10 @@ class SavingsCoreBest:
             self.w,
             self.r,
             self.Y,
-            self.savings_rate,
-            self.capital,
+            self.savings_rate.copy(),
+            self.capital.copy(),
             self.income * (1 - self.savings_rate),
+            self.household_type.copy(),
             ]
         self.e_trajectory.append(element)
 
@@ -443,7 +480,14 @@ class SavingsCoreBest:
         return trj
 
     def init_macro_trajectory(self):
-        element = ["time", "wage", "r", "capital", "consumption", "Y"]
+        element = [
+            "time", "wage", "r", "capital", "consumption", "Y",
+            "s_mean_h", "s_std_h", "s_mean_p", "s_std_p",
+            "K_mean_h", "K_mean_p",
+            "C_mean_h", "C_mean_p",
+            "W_mean_h", "W_mean_p",
+            "wealth_share_p",
+        ]
         self.macro_trajectory.append(element)
         self.w = self.b * self.alpha * self.Psum ** self.beta * self.K ** self.beta
         self.r = self.b * self.beta * self.Psum ** self.alpha * self.K ** self.alpha
@@ -453,13 +497,48 @@ class SavingsCoreBest:
         self.update_macro_trajectory()
 
     def update_macro_trajectory(self):
+        consumption = self.income * (1 - self.savings_rate)
+
+        # masks for types
+        h = ~self.is_power_seeker
+        p = self.is_power_seeker
+
+        # per-type savings rate stats
+        s_mean_h = self.savings_rate[h].mean() if h.any() else 0.0
+        s_std_h = self.savings_rate[h].std() if h.any() else 0.0
+        s_mean_p = self.savings_rate[p].mean() if p.any() else 0.0
+        s_std_p = self.savings_rate[p].std() if p.any() else 0.0
+
+        # per-type capital
+        K_mean_h = self.capital[h].mean() if h.any() else 0.0
+        K_mean_p = self.capital[p].mean() if p.any() else 0.0
+
+        # per-type consumption
+        C_mean_h = consumption[h].mean() if h.any() else 0.0
+        C_mean_p = consumption[p].mean() if p.any() else 0.0
+
+        # per-type power metric W = K * C^d
+        C_all = np.maximum(consumption, 0.0)
+        W = self.capital * C_all ** self.d_power
+        W_mean_h = W[h].mean() if h.any() else 0.0
+        W_mean_p = W[p].mean() if p.any() else 0.0
+
+        # wealth share of power-seekers
+        K_total = self.capital.sum()
+        wealth_share_p = self.capital[p].sum() / K_total if K_total > 0 and p.any() else 0.0
+
         element = [
             self.t,
             self.w,
             self.r,
-            self.capital.sum(),
-            (self.income * (1 - self.savings_rate)).sum(),
+            K_total,
+            consumption.sum(),
             self.Y,
+            s_mean_h, s_std_h, s_mean_p, s_std_p,
+            K_mean_h, K_mean_p,
+            C_mean_h, C_mean_p,
+            W_mean_h, W_mean_p,
+            wealth_share_p,
         ]
         self.macro_trajectory.append(element)
 

@@ -61,6 +61,9 @@ def runner(args):
         "sfixed": args.sfixed,
         "pexplore": args.pexplore,
         "e_trajectory_output": args.micro,
+        "lambda_p": getattr(args, 'lambda_p', 0.0),
+        "power_target": getattr(args, 'power_target', 'power_mult'),
+        "d_power": getattr(args, 'd_power', 0.5),
     }
     input_parameters = {key: val for key, val in input_parameters.items() if val is not None}
     print("Specified input parameters: ", input_parameters)
