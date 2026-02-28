@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.pyo
 test_output/
+experiments/
 demo/
 *.pkl
 *.png
