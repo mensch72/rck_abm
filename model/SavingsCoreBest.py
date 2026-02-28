@@ -467,7 +467,7 @@ class SavingsCoreBest:
             self.savings_rate.copy(),
             self.capital.copy(),
             self.income * (1 - self.savings_rate),
-            self.household_type.copy(),
+            self.household_type,
             ]
         self.e_trajectory.append(element)
 

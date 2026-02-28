@@ -16,6 +16,9 @@ import matplotlib.pyplot as plt
 
 from model.model_runner import runner
 
+# fraction of trajectory to skip when computing summary statistics
+LATE_FRACTION = 0.9
+
 
 def make_args(**overrides):
     """Create a Namespace with default arguments, applying overrides."""
@@ -49,8 +52,7 @@ def run_experiment_A(outdir="experiments/A", n_seeds=5, tau=50.0, tmax=500, nage
                 lambda_p=lp, power_target="power_mult", d_power=0.5,
             )
             final, traj = runner(args)[:2]
-            # use last 10% of trajectory for summary stats
-            late = traj.iloc[int(len(traj) * 0.9):]
+            late = traj.iloc[int(len(traj) * LATE_FRACTION):]
             results.append({
                 "lambda_p": lp,
                 "seed": s,
@@ -104,7 +106,7 @@ def run_experiment_B(outdir="experiments/B", n_seeds=5, tau=50.0, tmax=500, nage
                 lambda_p=0.1, power_target=pt, d_power=0.5,
             )
             final, traj = runner(args)[:2]
-            late = traj.iloc[int(len(traj) * 0.9):]
+            late = traj.iloc[int(len(traj) * LATE_FRACTION):]
             results.append({
                 "power_target": pt,
                 "seed": s,
